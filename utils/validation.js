@@ -7,12 +7,45 @@ export const BOOK_LIMITS = {
   image: 2048,
 };
 
+export const COPY_LIMITS = {
+  min: 1,
+  max: 99,
+  default: 1,
+};
+
 export const BORROW_DAYS = 14;
 
 const LOCAL_IMAGE_PATH = /^\/api\/images\/[a-f0-9]{24}$/i;
 
 export function readText(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Copies arrive as JSON numbers from the form, but accept numeric strings so
+ * direct API calls behave the same way.
+ */
+export function readCopies(value) {
+  if (value === null || value === undefined || value === "") return NaN;
+
+  const copies = typeof value === "number" ? value : Number(value);
+
+  return Number.isInteger(copies) ? copies : NaN;
+}
+
+export function validateCopies(value, errors) {
+  const copies = readCopies(value);
+
+  if (
+    !Number.isInteger(copies) ||
+    copies < COPY_LIMITS.min ||
+    copies > COPY_LIMITS.max
+  ) {
+    errors.totalCopies = `Total copies must be a whole number between ${COPY_LIMITS.min} and ${COPY_LIMITS.max}.`;
+    return null;
+  }
+
+  return copies;
 }
 
 export function isValidImageUrl(value) {
@@ -96,6 +129,20 @@ export function validateBookPayload(payload, { partial = false } = {}) {
 
     values[field] = value;
     validateField(field, value, errors);
+  }
+
+  const hasCopies = Object.prototype.hasOwnProperty.call(source, "totalCopies");
+
+  if (hasCopies) {
+    const copies = validateCopies(source.totalCopies, errors);
+
+    if (copies !== null) {
+      values.totalCopies = copies;
+    }
+  } else if (!partial) {
+    // Keep older clients working: books created without a copies field can
+    // still be borrowed once.
+    values.totalCopies = COPY_LIMITS.default;
   }
 
   return {

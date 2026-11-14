@@ -24,6 +24,8 @@ export async function connectToMongoDB() {
 
   console.log(`Connected to MongoDB database "${database.databaseName}".`);
 
+  await ensureBorrowingSchema();
+
   return database;
 }
 
@@ -41,6 +43,50 @@ export function booksCollection() {
 
 export function borrowsCollection() {
   return getDb().collection("borrows");
+}
+
+/**
+ * Backfill books created before copy tracking, then enforce one active borrow
+ * per reader and book at the database level. The unique partial index makes a
+ * double borrow impossible even when two requests arrive at the same instant.
+ */
+export async function ensureBorrowingSchema() {
+  const db = getDb();
+
+  await db.collection("books").updateMany(
+    {
+      $or: [
+        { totalCopies: { $exists: false } },
+        { availableCopies: { $exists: false } },
+      ],
+    },
+    [
+      {
+        $set: {
+          totalCopies: { $ifNull: ["$totalCopies", 1] },
+          availableCopies: {
+            $ifNull: ["$availableCopies", { $ifNull: ["$totalCopies", 1] }],
+          },
+        },
+      },
+    ]
+  );
+
+  try {
+    await db.collection("borrows").createIndex(
+      { bookId: 1, userId: 1 },
+      {
+        name: "unique_active_borrow_per_reader",
+        unique: true,
+        partialFilterExpression: { status: "borrowed" },
+      }
+    );
+  } catch (error) {
+    console.error(
+      "Unable to create the active borrow index. Check for duplicate active borrows:",
+      error.message
+    );
+  }
 }
 
 export async function closeMongoDB() {

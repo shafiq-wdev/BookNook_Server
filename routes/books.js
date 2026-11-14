@@ -2,11 +2,15 @@ import { Router } from "express";
 
 import { booksCollection, borrowsCollection } from "../db.js";
 import {
-  getSessionUser,
+  getRequestUser,
   isBookOwner,
   requireAuth,
 } from "../middleware/auth.js";
-import { parseObjectId, serializeBook } from "../utils/serialize.js";
+import {
+  normalizeCopies,
+  parseObjectId,
+  serializeBook,
+} from "../utils/serialize.js";
 import { firstError, validateBookPayload } from "../utils/validation.js";
 
 export const booksRouter = Router();
@@ -18,7 +22,7 @@ booksRouter.get("/", async (req, res, next) => {
     const filter = {};
 
     if (req.query.mine === "true" || req.query.mine === "1") {
-      const user = await getSessionUser(req);
+      const user = await getRequestUser(req);
 
       if (!user) {
         return res.status(401).json({ message: "Please log in to continue." });
@@ -69,8 +73,11 @@ booksRouter.post("/", requireAuth, async (req, res, next) => {
     }
 
     const now = new Date();
+    const totalCopies = values.totalCopies;
     const book = {
       ...values,
+      totalCopies,
+      availableCopies: totalCopies,
       userId: req.user.id,
       userName: req.user.name,
       userEmail: req.user.email,
@@ -121,6 +128,19 @@ booksRouter.patch("/:id", requireAuth, async (req, res, next) => {
 
     if (Object.keys(values).length === 0) {
       return res.status(400).json({ message: "No changes were provided." });
+    }
+
+    if (typeof values.totalCopies === "number") {
+      const current = normalizeCopies(existing);
+      const borrowedCopies = Math.max(
+        0,
+        current.totalCopies - current.availableCopies
+      );
+
+      values.availableCopies = Math.max(
+        0,
+        values.totalCopies - borrowedCopies
+      );
     }
 
     values.updatedAt = new Date();

@@ -18,6 +18,23 @@ export function toIso(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+/**
+ * Older books were stored before copy tracking existed. Treat them as a single
+ * copy and clamp availability so the UI never shows impossible numbers.
+ */
+export function normalizeCopies(book) {
+  const totalCopies =
+    Number.isInteger(book?.totalCopies) && book.totalCopies > 0
+      ? book.totalCopies
+      : 1;
+
+  const availableCopies = Number.isInteger(book?.availableCopies)
+    ? Math.min(Math.max(book.availableCopies, 0), totalCopies)
+    : totalCopies;
+
+  return { totalCopies, availableCopies };
+}
+
 export function serializeBook(book) {
   if (!book) return null;
 
@@ -28,6 +45,7 @@ export function serializeBook(book) {
     category: book.category || "Uncategorized",
     image: book.image || book.coverImage || book.imageUrl || "",
     description: book.description || "",
+    ...normalizeCopies(book),
     userId: book.userId ?? null,
     userName: book.userName || "",
     userEmail: book.userEmail || "",
